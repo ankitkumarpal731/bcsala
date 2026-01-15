@@ -3,55 +3,63 @@ const axios = require('axios');
 const express = require('express');
 const app = express();
 
-// Aapka Proxy URL (Original file se liya gaya)
+// Aapka Proxy URL
 const YOUR_PROXY_API_URL = 'https://numinfo-proxy-api.vercel.app';
 
-// Token environment variable se aayega (Security ke liye)
+// Token environment variable se aayega
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
 if (!token) {
     console.error("TELEGRAM_BOT_TOKEN is missing!");
 }
 
-// Bot setup (Polling method)
+// Bot setup
 const bot = new TelegramBot(token, { polling: true });
 
-// Message Handler
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
 
-    // Start command
     if (text === '/start') {
-        return bot.sendMessage(chatId, "Welcome! Apna phone number bhejein jiske baare mein info chahiye (e.g., 9876543210).");
+        return bot.sendMessage(chatId, "Welcome! Apna phone number bhejein (e.g., 9876543210).");
     }
 
-    // Agar user number bhejta hai
     bot.sendMessage(chatId, "Fetching details... ⏳");
 
     try {
-        // API Call
         const response = await axios.get(`${YOUR_PROXY_API_URL}/?num=${text}`);
-        
-        // Data ko formatted text mein convert karna
-        const data = response.data;
+        const apiResponse = response.data; // Poora API response
+
         let message = `📱 **Number Info:**\n\n`;
-        
-        // JSON object ko loop karke print karna
-        for (const [key, value] of Object.entries(data)) {
-            message += `🔹 *${key}:* ${value}\n`;
+
+        // Check karein agar 'data' field ek object hai
+        if (apiResponse.data && typeof apiResponse.data === 'object') {
+            // Sirf andar wala data loop karein
+            for (const [key, value] of Object.entries(apiResponse.data)) {
+                message += `🔹 *${key}:* ${value}\n`;
+            }
+        } else {
+            // Agar seedha data bahar hi hai (backup logic)
+            for (const [key, value] of Object.entries(apiResponse)) {
+                if (typeof value !== 'object') {
+                    message += `🔹 *${key}:* ${value}\n`;
+                }
+            }
         }
 
-        // Reply bhejna
+        // Extra info (Optional)
+        if (apiResponse.developer) message += `\n👨‍💻 Dev: ${apiResponse.developer}`;
+        if (apiResponse.key_expiry) message += `\n⏳ Expiry: ${apiResponse.key_expiry}`;
+
         bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
     } catch (error) {
-        bot.sendMessage(chatId, "❌ Error: Data nahi mila ya number galat hai.");
+        console.error(error);
+        bot.sendMessage(chatId, "❌ Error: Data nahi mila ya format sahi nahi hai.");
     }
 });
 
-// --- Express Server (Hosting ke liye zaroori hai) ---
-// Render jaise platforms port bind mangte hain
+// --- Express Server for Render ---
 app.get('/', (req, res) => {
     res.send('Telegram Bot is Running!');
 });
