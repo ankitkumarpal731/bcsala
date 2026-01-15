@@ -43,7 +43,8 @@ bot.on('message', async (msg) => {
             infoData = apiResponse;
         }
 
-        // 2. Agar data ek Array (List) hai (jaise [ {...} ]), toh pehla item nikalo
+        // 2. CHECK: Agar data ek Array (List) hai (jaise [ {...} ]), toh pehla item nikalo
+        // Yeh line us "0: object Object" wali problem ko fix karegi
         if (Array.isArray(infoData)) {
             infoData = infoData[0];
         }
@@ -51,14 +52,15 @@ bot.on('message', async (msg) => {
         // 3. Agar infoData ab ek object hai, toh uske andar ki details print karo
         if (infoData && typeof infoData === 'object') {
             for (const [key, value] of Object.entries(infoData)) {
-                // Agar value null ya undefined nahi hai, tabhi print karein
+                // Agar value null, undefined ya empty nahi hai, tabhi print karein
                 if (value !== null && value !== undefined && value !== "") {
-                    // Agar value abhi bhi object hai (nested), toh usse string mein convert karein ya chhod dein
+                    
+                    // Agar value abhi bhi object hai (nested), toh usse ignore karein taaki [object Object] na aaye
                     if (typeof value === 'object') {
-                        // Complex objects ko ignore karein taaki [object Object] na aaye
                         continue; 
                     }
-                    // Key ko thoda saaf dikhane ke liye (Optional: Uppercase)
+                    
+                    // Key ko thoda saaf dikhane ke liye (Phela letter bada karein)
                     const cleanKey = key.charAt(0).toUpperCase() + key.slice(1);
                     message += `🔹 *${cleanKey}:* ${value}\n`;
                 }
