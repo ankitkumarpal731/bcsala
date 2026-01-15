@@ -5,90 +5,130 @@ const app = express();
 
 // Aapka Proxy URL
 const YOUR_PROXY_API_URL = 'https://numinfo-proxy-api.vercel.app';
+// Aapka Channel Username (Bot ko yahan Admin banana zaroori hai)
+const CHANNEL_USERNAME = '@EhcoderGec'; 
 
 // Token environment variable se
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
 if (!token) {
-    console.error("TELEGRAM_BOT_TOKEN is missing! Make sure to set it in Render Environment Variables.");
+    console.error("TELEGRAM_BOT_TOKEN is missing!");
 }
 
 // Bot setup
 const bot = new TelegramBot(token, { polling: true });
 
+// Simple User Counter (Memory mein store hoga)
+const users = new Set();
+
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
+    const userId = msg.from.id;
+    const firstName = msg.from.first_name || "User";
 
-    // Start command
-    if (text === '/start') {
-        return bot.sendMessage(chatId, "👋 Welcome! Koi bhi phone number bhejein (e.g., 9876543210) details janne ke liye.");
+    // User ko list mein add karein
+    users.add(chatId);
+
+    // --- 1. CHANNEL JOIN CHECK (FORCE SUBSCRIBE) ---
+    try {
+        // User ka status check karein
+        const chatMember = await bot.getChatMember(CHANNEL_USERNAME, userId);
+        const status = chatMember.status;
+
+        // Agar user member nahi hai (left, kicked, ya restricted)
+        if (status === 'left' || status === 'kicked') {
+            return bot.sendMessage(chatId, `⚠️ **Access Denied!**\n\n${firstName}, is bot ko use karne ke liye hamara channel join karna zaroori hai.`, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "🚀 Join Channel Now", url: "https://t.me/EhcoderGec" }]
+                    ]
+                }
+            });
+        }
+    } catch (error) {
+        // Agar bot channel mein Admin nahi hai, toh error aayega.
+        console.error("Channel Check Error (Bot ko Channel me Admin banayein):", error.message);
+        // Error ke bawajood hum user ko rok nahi rahe taaki bot fail na ho, 
+        // par aap console check karke admin bana lena.
     }
 
-    // User ko batayein ki process chal raha hai
-    bot.sendMessage(chatId, "🔍 Searching details... ⏳");
+    // --- 2. COMMANDS ---
+    
+    // /start Command (Stylish Welcome)
+    if (text === '/start') {
+        const welcomeMsg = `
+👋 **Namaste ${firstName}!**
+
+Swagat hai **TrueCaller & Info Bot** mein. 🤖
+
+🔍 **Main kya kar sakta hoon?**
+Main kisi bhi Indian Mobile Number ki **Location, Operator aur Owner Name** nikaal kar de sakta hoon.
+
+🚀 **Kaise Use Karein?**
+Bas wo **Phone Number** likh kar bhejein jiske baare mein jaanna hai.
+(Example: \`9876543210\`)
+
+⚡ _Fast & Free Service by EhcoderGec_
+        `;
+        return bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
+    }
+
+    // /stats Command (Sirf aapke dekhne ke liye - Hidden)
+    if (text === '/stats') {
+        return bot.sendMessage(chatId, `📊 **Live Status:**\n\n👥 Total Users (Session): ${users.size}\n✅ Bot is Running.`);
+    }
+
+    // --- 3. NUMBER INFO LOGIC ---
+    
+    // Agar koi '/start' ya '/stats' nahi bhej raha, toh maan lete hain number hai
+    bot.sendMessage(chatId, "🔍 **Searching details...** ⏳", { parse_mode: 'Markdown' });
 
     try {
-        // API Request
         const response = await axios.get(`${YOUR_PROXY_API_URL}/?num=${text}`);
         const apiResponse = response.data;
 
-        let message = `📱 **Number Info:**\n\n`;
-        
-        // --- DATA EXTRACTING LOGIC (Sudhara hua) ---
         let infoData = apiResponse.data;
 
-        // 1. Agar 'data' field missing hai, toh shayad direct response hi data ho
-        if (!infoData) {
-            infoData = apiResponse;
-        }
+        // Fix: Agar data array hai
+        if (!infoData) infoData = apiResponse;
+        if (Array.isArray(infoData)) infoData = infoData[0];
 
-        // 2. CHECK: Agar data ek Array (List) hai (jaise [ {...} ]), toh pehla item nikalo
-        // Yeh line us "0: object Object" wali problem ko fix karegi
-        if (Array.isArray(infoData)) {
-            infoData = infoData[0];
-        }
+        let message = `📱 **Mobile Number Info:**\n\n`;
+        let found = false;
 
-        // 3. Agar infoData ab ek object hai, toh uske andar ki details print karo
         if (infoData && typeof infoData === 'object') {
             for (const [key, value] of Object.entries(infoData)) {
-                // Agar value null, undefined ya empty nahi hai, tabhi print karein
                 if (value !== null && value !== undefined && value !== "") {
+                    if (typeof value === 'object') continue;
                     
-                    // Agar value abhi bhi object hai (nested), toh usse ignore karein taaki [object Object] na aaye
-                    if (typeof value === 'object') {
-                        continue; 
-                    }
+                    // Format Key (Address_name -> Address Name)
+                    const cleanKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     
-                    // Key ko thoda saaf dikhane ke liye (Phela letter bada karein)
-                    const cleanKey = key.charAt(0).toUpperCase() + key.slice(1);
-                    message += `🔹 *${cleanKey}:* ${value}\n`;
+                    message += `🔹 *${cleanKey}:* \`${value}\`\n`;
+                    found = true;
                 }
             }
+        }
+
+        if (!found) {
+            message = "❌ **No Data Found!**\nKripya number check karein.";
         } else {
-            message += "⚠️ Data format unknown or empty.";
+            // Footer (Bina Dev Name aur Expiry ke)
+            message += `\n━━━━━━━━━━━━━━━━━━\n✅ *Joined:* @EhcoderGec`;
         }
 
-        // --- DEVELOPER & EXTRA INFO ---
-        if (apiResponse.developer) {
-            message += `\n👨‍💻 **Dev:** ${apiResponse.developer}`;
-        }
-        if (apiResponse.key_expiry) {
-            message += `\n⏳ **Expiry:** ${apiResponse.key_expiry}`;
-        }
-
-        // Message bhejein
         bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
     } catch (error) {
-        console.error("API Error:", error.message);
-        bot.sendMessage(chatId, "❌ Error: Data nahi mila. Kripya number check karein ya baad mein try karein.");
+        bot.sendMessage(chatId, "❌ **Error:** Number sahi format mein bhejein (e.g., 9999999999).");
     }
 });
 
-// --- Express Server (Render ko zinda rakhne ke liye) ---
+// --- Express Server ---
 app.get('/', (req, res) => {
-    res.send('Telegram Bot is Running smoothly!');
+    res.send('Bot is Running...');
 });
 
 const PORT = process.env.PORT || 3000;
