@@ -5,20 +5,16 @@ const app = express();
 
 // Aapka Proxy URL
 const YOUR_PROXY_API_URL = 'https://numinfo-proxy-api.vercel.app';
-// Aapka Channel Username (Bot ko yahan Admin banana zaroori hai)
+// Aapka Channel Username
 const CHANNEL_USERNAME = '@EhcoderGec'; 
 
 // Token environment variable se
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
-if (!token) {
-    console.error("TELEGRAM_BOT_TOKEN is missing!");
-}
-
 // Bot setup
 const bot = new TelegramBot(token, { polling: true });
 
-// Simple User Counter (Memory mein store hoga)
+// Memory storage for users
 const users = new Set();
 
 bot.on('message', async (msg) => {
@@ -27,18 +23,15 @@ bot.on('message', async (msg) => {
     const userId = msg.from.id;
     const firstName = msg.from.first_name || "User";
 
-    // User ko list mein add karein
     users.add(chatId);
 
-    // --- 1. CHANNEL JOIN CHECK (FORCE SUBSCRIBE) ---
+    // --- 1. CHANNEL JOIN CHECK ---
     try {
-        // User ka status check karein
         const chatMember = await bot.getChatMember(CHANNEL_USERNAME, userId);
         const status = chatMember.status;
 
-        // Agar user member nahi hai (left, kicked, ya restricted)
         if (status === 'left' || status === 'kicked') {
-            return bot.sendMessage(chatId, `⚠️ **Access Denied!**\n\n${firstName}, is bot ko use karne ke liye hamara channel join karna zaroori hai.`, {
+            return bot.sendMessage(chatId, `⚠️ **Rukiye ${firstName}!**\n\nIs bot ko use karne ke liye hamara channel join karna zaroori hai.`, {
                 parse_mode: 'Markdown',
                 reply_markup: {
                     inline_keyboard: [
@@ -48,51 +41,40 @@ bot.on('message', async (msg) => {
             });
         }
     } catch (error) {
-        // Agar bot channel mein Admin nahi hai, toh error aayega.
-        console.error("Channel Check Error (Bot ko Channel me Admin banayein):", error.message);
-        // Error ke bawajood hum user ko rok nahi rahe taaki bot fail na ho, 
-        // par aap console check karke admin bana lena.
+        // Admin error ignore karein (taaki bot ruke nahi)
     }
 
     // --- 2. COMMANDS ---
-    
-    // /start Command (Stylish Welcome)
     if (text === '/start') {
         const welcomeMsg = `
 👋 **Namaste ${firstName}!**
 
-Swagat hai **TrueCaller & Info Bot** mein. 🤖
+Swagat hai **Number Info Bot** mein. 🤖
 
 🔍 **Main kya kar sakta hoon?**
-Main kisi bhi Indian Mobile Number ki **Location, Operator aur Owner Name** nikaal kar de sakta hoon.
+Main kisi bhi Indian Mobile Number ki details nikaal sakta hoon.
 
 🚀 **Kaise Use Karein?**
-Bas wo **Phone Number** likh kar bhejein jiske baare mein jaanna hai.
-(Example: \`9876543210\`)
+Bas number bhejein (Example: \`9876543210\`)
 
-⚡ _Fast & Free Service by EhcoderGec_
+⚡ _Powered by EhcoderGec_
         `;
         return bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
     }
 
-    // /stats Command (Sirf aapke dekhne ke liye - Hidden)
     if (text === '/stats') {
-        return bot.sendMessage(chatId, `📊 **Live Status:**\n\n👥 Total Users (Session): ${users.size}\n✅ Bot is Running.`);
+        return bot.sendMessage(chatId, `📊 **Status:**\nActive Users: ${users.size}`);
     }
 
     // --- 3. NUMBER INFO LOGIC ---
-    
-    // Agar koi '/start' ya '/stats' nahi bhej raha, toh maan lete hain number hai
     bot.sendMessage(chatId, "🔍 **Searching details...** ⏳", { parse_mode: 'Markdown' });
 
     try {
         const response = await axios.get(`${YOUR_PROXY_API_URL}/?num=${text}`);
-        const apiResponse = response.data;
+        let infoData = response.data;
 
-        let infoData = apiResponse.data;
-
-        // Fix: Agar data array hai
-        if (!infoData) infoData = apiResponse;
+        // Data Structure Fix
+        if (infoData.data) infoData = infoData.data;
         if (Array.isArray(infoData)) infoData = infoData[0];
 
         let message = `📱 **Mobile Number Info:**\n\n`;
@@ -100,29 +82,40 @@ Bas wo **Phone Number** likh kar bhejein jiske baare mein jaanna hai.
 
         if (infoData && typeof infoData === 'object') {
             for (const [key, value] of Object.entries(infoData)) {
+                // Khali values hatein
                 if (value !== null && value !== undefined && value !== "") {
                     if (typeof value === 'object') continue;
+
+                    // --- KEY FORMATTING (e.g. father_name -> Father Name) ---
+                    let cleanKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     
-                    // Format Key (Address_name -> Address Name)
-                    const cleanKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    // --- VALUE CLEANING (Address fix) ---
+                    let cleanValue = value.toString();
                     
-                    message += `🔹 *${cleanKey}:* \`${value}\`\n`;
+                    // Agar Address hai, to '!' hata kar comma lagayein
+                    if (key.toLowerCase().includes('address')) {
+                        cleanValue = cleanValue.replace(/!+/g, ', ').replace(/, ,/g, ',').trim();
+                        // Agar end mein comma reh jaye
+                        if (cleanValue.endsWith(', ')) cleanValue = cleanValue.slice(0, -2);
+                    }
+
+                    message += `🔹 *${cleanKey}:* \`${cleanValue}\`\n`;
                     found = true;
                 }
             }
         }
 
         if (!found) {
-            message = "❌ **No Data Found!**\nKripya number check karein.";
+            message = "❌ **No Data Found!**\nNumber check karke dobara try karein.";
         } else {
-            // Footer (Bina Dev Name aur Expiry ke)
+            // Footer
             message += `\n━━━━━━━━━━━━━━━━━━\n✅ *Joined:* @EhcoderGec`;
         }
 
         bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
     } catch (error) {
-        bot.sendMessage(chatId, "❌ **Error:** Number sahi format mein bhejein (e.g., 9999999999).");
+        bot.sendMessage(chatId, "❌ **Error:** Number sahi format mein nahi hai.");
     }
 });
 
